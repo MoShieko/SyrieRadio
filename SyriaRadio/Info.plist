@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-4415870051466870~8365291313</string>
+	<string>$(ADMOB_APP_ID)</string>
+	<key>AdMobBannerUnitID</key>
+	<string>$(ADMOB_BANNER_UNIT_ID)</string>
 	<!-- Must match the auto-renewable subscription or non-consumable in App Store Connect. -->
 	<key>PremiumProductIdentifier</key>
 	<string>Mohammed.Shieko.SyriaRadio.premium</string>

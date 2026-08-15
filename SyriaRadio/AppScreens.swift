@@ -119,8 +119,16 @@ struct HomeScreen: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(stations.prefix(5)) { station in
-                        FeaturedCard(station: station, isPlaying: player.isPlaying && player.selectedStation == station) {
-                            player.select(station)
+                        FeaturedCard(
+                            station: station,
+                            isLive: player.isPlaying && player.selectedStation == station,
+                            isActive: player.isPlaybackActive && player.selectedStation == station
+                        ) {
+                            if player.selectedStation == station, player.isPlaybackActive {
+                                player.pause()
+                            } else {
+                                player.select(station)
+                            }
                         }
                     }
                 }
@@ -164,7 +172,8 @@ struct HomeScreen: View {
 
 struct FeaturedCard: View {
     let station: RadioStation
-    let isPlaying: Bool
+    let isLive: Bool
+    let isActive: Bool
     let action: () -> Void
 
     var body: some View {
@@ -178,7 +187,7 @@ struct FeaturedCard: View {
                     .frame(width: 286, height: 176)
                 LinearGradient(colors: [.clear, AppPalette.mediaOverlay.opacity(0.92)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(LocalizedStringKey(isPlaying ? "LIVE NOW" : station.genre.uppercased()))
+                    Text(LocalizedStringKey(isLive ? "LIVE NOW" : station.genre.uppercased()))
                         .font(.system(size: 10, weight: .bold))
                         .tracking(1.4)
                         .foregroundStyle(AppPalette.goldLight)
@@ -189,7 +198,7 @@ struct FeaturedCard: View {
                 .padding(16)
                 HStack {
                     Spacer()
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: isActive ? "pause.fill" : "play.fill")
                         .foregroundStyle(AppPalette.primary)
                         .frame(width: 42, height: 42)
                         .background(AppPalette.goldLight, in: Circle())
@@ -293,7 +302,9 @@ struct StationRow: View {
     @ObservedObject var favorites: FavoritesStore
     var compact = false
 
-    private var active: Bool { player.selectedStation == station && player.isPlaying }
+    private var isSelected: Bool { player.selectedStation == station }
+    private var active: Bool { isSelected && player.isPlaybackActive }
+    private var hasPlaybackStatus: Bool { isSelected && player.playbackState != .idle }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -316,7 +327,7 @@ struct StationRow: View {
                     }
                     HStack(spacing: 5) {
                         Circle().fill(active ? AppPalette.gold : Color.green).frame(width: 6, height: 6)
-                        Text(LocalizedStringKey(active ? player.statusText : station.tagline))
+                        Text(LocalizedStringKey(hasPlaybackStatus ? player.statusText : station.tagline))
                             .font(.caption)
                             .foregroundStyle(AppPalette.textSecondary)
                             .lineLimit(1)
@@ -444,7 +455,7 @@ struct MiniPlayer: View {
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("NOW PLAYING")
+                        Text(LocalizedStringKey(player.isPlaying ? "NOW PLAYING" : player.statusText))
                             .font(.system(size: 9, weight: .bold))
                             .tracking(0.8)
                             .foregroundStyle(AppPalette.gold)
@@ -522,7 +533,7 @@ struct NowPlayingScreen: View {
                             Text("NOW PLAYING")
                                 .font(.system(size: 11, weight: .bold))
                                 .tracking(1.6)
-                            Text("LIVE RADIO")
+                            Text(LocalizedStringKey(player.isPlaying ? "LIVE RADIO" : player.statusText))
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(AppPalette.gold)
                         }
@@ -550,11 +561,13 @@ struct NowPlayingScreen: View {
                                 .font(.system(size: compact ? 21 : 26, weight: .bold, design: .rounded))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.72)
-                            Text("LIVE")
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(AppPalette.goldLight, in: RoundedRectangle(cornerRadius: 6))
+                            if player.isPlaying {
+                                Text("LIVE")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(AppPalette.goldLight, in: RoundedRectangle(cornerRadius: 6))
+                            }
                         }
                         HStack(spacing: 5) {
                             Text(LocalizedStringKey(player.selectedStation.city))
@@ -713,12 +726,14 @@ struct SettingsScreen: View {
     }
 
     @ObservedObject var player: RadioPlayer
+    @ObservedObject var advertising: AdvertisingManager
     @AppStorage("appLanguageV3") private var language = ""
     @AppStorage("streamingQuality") private var streamingQuality = "Automatic"
     @AppStorage("pauseOnAudioDisconnect") private var pauseOnAudioDisconnect = true
     @AppStorage("appearanceMode") private var appearanceMode = "System"
     @State private var activePicker: PickerKind?
     @State private var showAbout = false
+    @State private var showPremium = false
 
     var body: some View {
         ZStack {
@@ -745,6 +760,16 @@ struct SettingsScreen: View {
                             detail: "Car & Bluetooth",
                             isOn: $pauseOnAudioDisconnect
                         )
+                        SettingsRow(
+                            icon: advertising.isPremium ? "checkmark.seal.fill" : "crown.fill",
+                            title: "Premium",
+                            detail: advertising.isPremium
+                                ? "Active"
+                                : (advertising.premiumProduct?.displayPrice ?? "View options"),
+                            localizesDetail: advertising.isPremium || advertising.premiumProduct == nil
+                        ) {
+                            showPremium = true
+                        }
                         SettingsRow(icon: "star", title: "Leave a review", detail: "App Store") {
                             requestAppReview()
                         }
@@ -814,6 +839,9 @@ struct SettingsScreen: View {
         .sheet(isPresented: $showAbout) {
             AboutSyrieRadioView(version: appVersion)
         }
+        .sheet(isPresented: $showPremium) {
+            PremiumScreen(advertising: advertising)
+        }
     }
 
     private var appVersion: String {
@@ -827,6 +855,126 @@ struct SettingsScreen: View {
             .first(where: { $0.activationState == .foregroundActive })
         else { return }
         SKStoreReviewController.requestReview(in: scene)
+    }
+}
+
+private struct PremiumScreen: View {
+    @ObservedObject var advertising: AdvertisingManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 22) {
+                    Image(systemName: advertising.isPremium ? "checkmark.seal.fill" : "crown.fill")
+                        .font(.system(size: 58, weight: .semibold))
+                        .foregroundStyle(AppPalette.gold)
+                        .padding(.top, 18)
+
+                    Text(advertising.isPremium ? "Premium is active" : "SyrieRadio Premium")
+                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppPalette.primary)
+                        .multilineTextAlignment(.center)
+
+                    if advertising.isPremium {
+                        Text("Enjoy SyrieRadio without advertisements.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppPalette.textSecondary)
+                            .multilineTextAlignment(.center)
+                    } else if let product = advertising.premiumProduct {
+                        VStack(spacing: 8) {
+                            Text(verbatim: product.displayName)
+                                .font(.headline)
+                                .foregroundStyle(AppPalette.primary)
+                            Text(verbatim: product.description)
+                                .font(.subheadline)
+                                .foregroundStyle(AppPalette.textSecondary)
+                                .multilineTextAlignment(.center)
+                            Text(verbatim: product.displayPrice)
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppPalette.gold)
+                        }
+                    } else if advertising.isLoadingProduct {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                            Text("Loading Premium…")
+                                .font(.subheadline)
+                                .foregroundStyle(AppPalette.textSecondary)
+                        }
+                    }
+
+                    if let message = advertising.storeMessage {
+                        Label(message, systemImage: "info.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(AppPalette.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    if let error = advertising.storeErrorMessage {
+                        VStack(spacing: 12) {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+
+                            Button("Try again") {
+                                Task { await advertising.retryLastStoreOperation() }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .disabled(advertising.isStoreBusy)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    if !advertising.isPremium, let product = advertising.premiumProduct {
+                        Button {
+                            Task { await advertising.purchasePremium() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if advertising.isPurchasing {
+                                    ProgressView().tint(.white)
+                                }
+                                Text("Unlock Premium")
+                                Text(verbatim: "– \(product.displayPrice)")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(AppPalette.control, in: RoundedRectangle(cornerRadius: 15))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(advertising.isStoreBusy)
+                    }
+
+                    if !advertising.isPremium {
+                        Button {
+                            Task { await advertising.restorePurchases() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if advertising.isRestoring {
+                                    ProgressView()
+                                }
+                                Text(advertising.isRestoring ? "Restoring…" : "Restore purchases")
+                            }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppPalette.gold)
+                        .disabled(advertising.isStoreBusy)
+                    }
+                }
+                .padding(28)
+            }
+            .background(AppPalette.background.ignoresSafeArea())
+            .navigationTitle("Premium")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }
 

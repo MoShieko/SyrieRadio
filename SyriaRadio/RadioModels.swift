@@ -53,6 +53,12 @@ final class RadioPlayer: ObservableObject {
     private var radioPlayer: AVPlayer?
     private var sleepTask: Task<Void, Never>?
     private var radioWasInterrupted = false
+    private var isUserPaused = false
+    private var timeControlObservation: NSKeyValueObservation?
+    private var itemStatusObservation: NSKeyValueObservation?
+    private var itemFailureObserver: NSObjectProtocol?
+    private var itemStalledObserver: NSObjectProtocol?
+    private var itemEndedObserver: NSObjectProtocol?
     private let advertising: AdvertisingManager
 
     init(stations: [RadioStation], advertising: AdvertisingManager) {
@@ -62,9 +68,15 @@ final class RadioPlayer: ObservableObject {
 
     deinit {
         sleepTask?.cancel()
+        timeControlObservation?.invalidate()
+        itemStatusObservation?.invalidate()
+        if let itemFailureObserver { NotificationCenter.default.removeObserver(itemFailureObserver) }
+        if let itemStalledObserver { NotificationCenter.default.removeObserver(itemStalledObserver) }
+        if let itemEndedObserver { NotificationCenter.default.removeObserver(itemEndedObserver) }
     }
 
-    var isPlaying: Bool { playbackState == .playing || playbackState == .loading }
+    var isPlaying: Bool { playbackState == .playing }
+    var isPlaybackActive: Bool { playbackState == .playing || playbackState == .loading }
     var isLoading: Bool { playbackState == .loading }
     var statusText: String {
         switch playbackState {
@@ -76,7 +88,7 @@ final class RadioPlayer: ObservableObject {
         }
     }
 
-    func togglePlayback() { isPlaying ? pause() : play() }
+    func togglePlayback() { isPlaybackActive ? pause() : play() }
 
     func select(_ station: RadioStation, autoplay: Bool = true) {
         let changed = selectedStation.id != station.id
@@ -96,8 +108,9 @@ final class RadioPlayer: ObservableObject {
 
     func play() {
         if playbackState == .paused, radioPlayer?.currentItem != nil {
+            isUserPaused = false
+            playbackState = .loading
             radioPlayer?.play()
-            playbackState = .playing
             return
         }
 
@@ -115,7 +128,7 @@ final class RadioPlayer: ObservableObject {
     private func startStream(_ station: RadioStation) {
         guard selectedStation == station else { return }
         tearDownRadioPlayer()
-        remember(station)
+        isUserPaused = false
         playbackState = .loading
         let item = AVPlayerItem(url: station.streamURL)
         item.preferredPeakBitRate = preferredPeakBitRate(
@@ -123,11 +136,13 @@ final class RadioPlayer: ObservableObject {
         )
         let newPlayer = AVPlayer(playerItem: item)
         radioPlayer = newPlayer
+        observePlayback(player: newPlayer, item: item, station: station)
         newPlayer.play()
-        playbackState = .playing
     }
 
     func pause() {
+        advertising.cancelPendingRadioStart()
+        isUserPaused = true
         radioPlayer?.pause()
         playbackState = .paused
     }
@@ -165,6 +180,7 @@ final class RadioPlayer: ObservableObject {
         case .began:
             if radioPlayer?.timeControlStatus == .playing {
                 radioWasInterrupted = true
+                isUserPaused = true
                 radioPlayer?.pause()
                 playbackState = .paused
             }
@@ -176,8 +192,9 @@ final class RadioPlayer: ObservableObject {
                 return
             }
             radioWasInterrupted = false
+            isUserPaused = false
+            playbackState = .loading
             radioPlayer?.play()
-            playbackState = .playing
         @unknown default:
             break
         }
@@ -203,7 +220,138 @@ final class RadioPlayer: ObservableObject {
         recentlyPlayed = Array(recentlyPlayed.prefix(4))
     }
 
+    private func observePlayback(player: AVPlayer, item: AVPlayerItem, station: RadioStation) {
+        timeControlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) {
+            [weak self, weak player, weak item] _, _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self, let player, let item,
+                      self.radioPlayer === player,
+                      player.currentItem === item
+                else { return }
+                self.handleTimeControlStatus(player.timeControlStatus, item: item, station: station)
+            }
+        }
+
+        itemStatusObservation = item.observe(\.status, options: [.initial, .new]) {
+            [weak self, weak player, weak item] _, _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self, let player, let item,
+                      self.radioPlayer === player,
+                      player.currentItem === item
+                else { return }
+                self.handleItemStatus(item.status, error: item.error)
+            }
+        }
+
+        itemFailureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self, weak player, weak item] notification in
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self, let player, let item,
+                      self.radioPlayer === player,
+                      player.currentItem === item
+                else { return }
+                self.failStream(error)
+            }
+        }
+
+        itemStalledObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self, weak player, weak item] _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self, let player, let item,
+                      self.radioPlayer === player,
+                      player.currentItem === item,
+                      !self.isUserPaused
+                else { return }
+                self.playbackState = .loading
+            }
+        }
+
+        itemEndedObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self, weak player, weak item] _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self, let player, let item,
+                      self.radioPlayer === player,
+                      player.currentItem === item
+                else { return }
+                self.failStream(nil)
+            }
+        }
+    }
+
+    private func handleTimeControlStatus(
+        _ status: AVPlayer.TimeControlStatus,
+        item: AVPlayerItem,
+        station: RadioStation
+    ) {
+        switch status {
+        case .playing:
+            isUserPaused = false
+            playbackState = .playing
+            remember(station)
+        case .waitingToPlayAtSpecifiedRate:
+            guard !isUserPaused else { return }
+            if case .failed = playbackState { return }
+            playbackState = .loading
+        case .paused:
+            if case .failed = playbackState { return }
+            if item.status == .failed {
+                failStream(item.error)
+            } else if isUserPaused {
+                playbackState = .paused
+            } else {
+                playbackState = .loading
+            }
+        @unknown default:
+            playbackState = .loading
+        }
+    }
+
+    private func handleItemStatus(_ status: AVPlayerItem.Status, error: Error?) {
+        switch status {
+        case .unknown:
+            if !isUserPaused { playbackState = .loading }
+        case .readyToPlay:
+            // AVPlayer.timeControlStatus is the source of truth for "Live now".
+            break
+        case .failed:
+            failStream(error)
+        @unknown default:
+            failStream(error)
+        }
+    }
+
+    private func failStream(_ error: Error?) {
+#if DEBUG
+        if let error {
+            print("[RadioPlayer] Stream failed: \(error.localizedDescription)")
+        }
+#endif
+        isUserPaused = false
+        playbackState = .failed("Stream unavailable")
+        radioPlayer?.pause()
+    }
+
     private func tearDownRadioPlayer() {
+        timeControlObservation?.invalidate()
+        timeControlObservation = nil
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        if let itemFailureObserver { NotificationCenter.default.removeObserver(itemFailureObserver) }
+        if let itemStalledObserver { NotificationCenter.default.removeObserver(itemStalledObserver) }
+        if let itemEndedObserver { NotificationCenter.default.removeObserver(itemEndedObserver) }
+        itemFailureObserver = nil
+        itemStalledObserver = nil
+        itemEndedObserver = nil
         radioPlayer?.pause()
         radioPlayer = nil
     }

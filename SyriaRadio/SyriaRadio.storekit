@@ -1,0 +1,53 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "nl_NL",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "53595249",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "5052454D",
+      "localizations" : [
+        {
+          "description" : "Een eenmalige aankoop om zonder advertenties naar SyrieRadio te luisteren.",
+          "displayName" : "SyrieRadio Premium",
+          "locale" : "nl_NL"
+        },
+        {
+          "description" : "A one-time purchase to listen to SyrieRadio without advertisements.",
+          "displayName" : "SyrieRadio Premium",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Mohammed.Shieko.SyriaRadio.premium",
+      "referenceName" : "SyrieRadio Premium",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "nl_NL",
+    "_storefront" : "NLD",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -53,14 +53,15 @@ struct ContentView: View {
                         selectedTab = .stations
                     }
                 case .settings:
-                    SettingsScreen(player: player)
+                    SettingsScreen(player: player, advertising: advertising)
                 }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
-                if !advertising.isPremium {
-                    AdMobBanner(adUnitID: AdMobBanner.defaultAdUnitID)
+                if advertising.shouldShowAdvertisements,
+                   let adUnitID = AdConfiguration.bannerUnitID {
+                    AdMobBanner(adUnitID: adUnitID)
                         .frame(width: 320, height: 50)
                 }
                 MiniPlayer(player: player, favorites: favorites) {
@@ -154,7 +155,7 @@ struct ContentView: View {
 
     private func handleAudioRouteChange(_ notification: Notification) {
         guard pauseOnAudioDisconnect,
-              player.isPlaying,
+              player.isPlaybackActive,
               let reasonNumber = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber,
               AVAudioSession.RouteChangeReason(rawValue: reasonNumber.uintValue) == .oldDeviceUnavailable,
               let oldRoute = notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
