@@ -1,3 +1,4 @@
+import AVKit
 import Combine
 import MediaPlayer
 import StoreKit
@@ -526,7 +527,10 @@ struct NowPlayingScreen: View {
                                 .foregroundStyle(AppPalette.gold)
                         }
                         Spacer()
-                        Color.clear.frame(width: 44, height: 44)
+                        AirPlayRoutePicker()
+                            .frame(width: 44, height: 44)
+                            .background(AppPalette.card.opacity(0.78), in: Circle())
+                            .accessibilityLabel("AirPlay")
                     }
                     .foregroundStyle(AppPalette.primary)
 
@@ -629,6 +633,21 @@ struct NowPlayingScreen: View {
                 .padding(.bottom, max(8, geometry.safeAreaInsets.bottom))
             }
         }
+    }
+}
+
+private struct AirPlayRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let routePicker = AVRoutePickerView(frame: .zero)
+        routePicker.tintColor = UIColor(AppPalette.primary)
+        routePicker.activeTintColor = UIColor(AppPalette.gold)
+        routePicker.prioritizesVideoDevices = false
+        return routePicker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
+        uiView.tintColor = UIColor(AppPalette.primary)
+        uiView.activeTintColor = UIColor(AppPalette.gold)
     }
 }
 

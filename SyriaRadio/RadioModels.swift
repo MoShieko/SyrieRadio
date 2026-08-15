@@ -50,11 +50,16 @@ final class RadioPlayer: ObservableObject {
     @Published private(set) var recentlyPlayed: [RadioStation] = []
     @Published private(set) var sleepTimerEndDate: Date?
 
-    private var player: AVPlayer?
+    private var radioPlayer: AVPlayer?
     private var sleepTask: Task<Void, Never>?
+    private var radioWasInterrupted = false
 
     init(stations: [RadioStation]) {
         selectedStation = stations[0]
+    }
+
+    deinit {
+        sleepTask?.cancel()
     }
 
     var isPlaying: Bool { playbackState == .playing || playbackState == .loading }
@@ -73,29 +78,47 @@ final class RadioPlayer: ObservableObject {
 
     func select(_ station: RadioStation, autoplay: Bool = true) {
         let changed = selectedStation.id != station.id
-        if changed {
-            tearDownPlayer()
-            selectedStation = station
-            playbackState = .idle
+        selectedStation = station
+
+        if !changed {
+            if autoplay, playbackState != .playing, playbackState != .loading {
+                play()
+            }
+            return
         }
-        if autoplay { play() }
+
+        tearDownRadioPlayer()
+        playbackState = .idle
+        if autoplay { startStream(selectedStation) }
     }
 
     func play() {
-        tearDownPlayer()
-        remember(selectedStation)
-        let item = AVPlayerItem(url: selectedStation.streamURL)
+        if playbackState == .paused, radioPlayer?.currentItem != nil {
+            radioPlayer?.play()
+            playbackState = .playing
+            return
+        }
+
+        startStream(selectedStation)
+    }
+
+    private func startStream(_ station: RadioStation) {
+        guard selectedStation == station else { return }
+        tearDownRadioPlayer()
+        remember(station)
+        playbackState = .loading
+        let item = AVPlayerItem(url: station.streamURL)
         item.preferredPeakBitRate = preferredPeakBitRate(
             for: UserDefaults.standard.string(forKey: "streamingQuality") ?? "Automatic"
         )
         let newPlayer = AVPlayer(playerItem: item)
-        player = newPlayer
+        radioPlayer = newPlayer
         newPlayer.play()
         playbackState = .playing
     }
 
     func pause() {
-        player?.pause()
+        radioPlayer?.pause()
         playbackState = .paused
     }
 
@@ -120,9 +143,34 @@ final class RadioPlayer: ObservableObject {
     func reportAudioSetupFailure() { playbackState = .failed("Audio setup failed") }
 
     func applyStreamingQuality(_ quality: String) {
-        let shouldResume = isPlaying
-        if shouldResume { play() }
-        player?.currentItem?.preferredPeakBitRate = preferredPeakBitRate(for: quality)
+        radioPlayer?.currentItem?.preferredPeakBitRate = preferredPeakBitRate(for: quality)
+    }
+
+    func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType)
+        else { return }
+
+        switch type {
+        case .began:
+            if radioPlayer?.timeControlStatus == .playing {
+                radioWasInterrupted = true
+                radioPlayer?.pause()
+                playbackState = .paused
+            }
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            guard options.contains(.shouldResume), radioWasInterrupted else {
+                radioWasInterrupted = false
+                return
+            }
+            radioWasInterrupted = false
+            radioPlayer?.play()
+            playbackState = .playing
+        @unknown default:
+            break
+        }
     }
 
     private func preferredPeakBitRate(for quality: String) -> Double {
@@ -145,9 +193,9 @@ final class RadioPlayer: ObservableObject {
         recentlyPlayed = Array(recentlyPlayed.prefix(4))
     }
 
-    private func tearDownPlayer() {
-        player?.pause()
-        player = nil
+    private func tearDownRadioPlayer() {
+        radioPlayer?.pause()
+        radioPlayer = nil
     }
 }
 

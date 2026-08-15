@@ -52,8 +52,10 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
-                MiniPlayer(player: player, favorites: favorites) { showNowPlaying = true }
-                    .padding(.horizontal, 16)
+                MiniPlayer(player: player, favorites: favorites) {
+                    showNowPlaying = true
+                }
+                .padding(.horizontal, 16)
                 BottomBar(selectedTab: $selectedTab)
             }
             .padding(.top, 8)
@@ -67,6 +69,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
             handleAudioRouteChange(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+            player.handleAudioInterruption(notification)
         }
         .tint(AppPalette.gold)
         .preferredColorScheme(preferredColorScheme)
@@ -176,7 +181,7 @@ private struct BottomBar: View {
 
                 HStack(spacing: 0) {
                     ForEach(ContentView.Tab.allCases, id: \.self) { tab in
-                        let active = displayedTab(width: geometry.size.width) == tab
+                        let active = displayedTab == tab
                         Image(systemName: tab.icon + (active ? ".fill" : ""))
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(active ? AppPalette.gold : AppPalette.textSecondary.opacity(0.65))
@@ -191,9 +196,7 @@ private struct BottomBar: View {
                 .padding(6)
             }
             .contentShape(Capsule())
-            .gesture(
-                scrubGesture(width: geometry.size.width)
-            )
+            .gesture(scrubGesture(width: geometry.size.width))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(LocalizedStringKey(selectedTab.rawValue)))
             .accessibilityHint("Swipe left or right to change tab")
@@ -210,15 +213,15 @@ private struct BottomBar: View {
         ContentView.Tab.allCases.firstIndex(of: selectedTab) ?? 0
     }
 
+    private var displayedTab: ContentView.Tab {
+        previewTab ?? selectedTab
+    }
+
     private func indicatorOffset(width: CGFloat, itemWidth: CGFloat) -> CGFloat {
         if let dragLocation {
             return min(max(dragLocation - itemWidth / 2, 6), width - itemWidth - 6)
         }
         return 6 + CGFloat(selectedIndex) * itemWidth
-    }
-
-    private func displayedTab(width: CGFloat) -> ContentView.Tab {
-        previewTab ?? selectedTab
     }
 
     private func tab(at location: CGFloat, width: CGFloat) -> ContentView.Tab {
