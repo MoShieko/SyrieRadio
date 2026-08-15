@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-4415870051466870~8365291313</string>
+	<!-- Must match the auto-renewable subscription or non-consumable in App Store Connect. -->
+	<key>PremiumProductIdentifier</key>
+	<string>Mohammed.Shieko.SyriaRadio.premium</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

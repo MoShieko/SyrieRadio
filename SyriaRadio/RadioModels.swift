@@ -53,9 +53,11 @@ final class RadioPlayer: ObservableObject {
     private var radioPlayer: AVPlayer?
     private var sleepTask: Task<Void, Never>?
     private var radioWasInterrupted = false
+    private let advertising: AdvertisingManager
 
-    init(stations: [RadioStation]) {
+    init(stations: [RadioStation], advertising: AdvertisingManager) {
         selectedStation = stations[0]
+        self.advertising = advertising
     }
 
     deinit {
@@ -89,7 +91,7 @@ final class RadioPlayer: ObservableObject {
 
         tearDownRadioPlayer()
         playbackState = .idle
-        if autoplay { startStream(selectedStation) }
+        if autoplay { playWithAdvertisementIfNeeded(selectedStation) }
     }
 
     func play() {
@@ -99,7 +101,15 @@ final class RadioPlayer: ObservableObject {
             return
         }
 
-        startStream(selectedStation)
+        playWithAdvertisementIfNeeded(selectedStation)
+    }
+
+    private func playWithAdvertisementIfNeeded(_ station: RadioStation) {
+        playbackState = .loading
+        advertising.startRadio { [weak self] in
+            guard let self, self.selectedStation == station else { return }
+            self.startStream(station)
+        }
     }
 
     private func startStream(_ station: RadioStation) {

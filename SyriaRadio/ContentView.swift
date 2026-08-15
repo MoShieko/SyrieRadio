@@ -21,13 +21,20 @@ struct ContentView: View {
     }
 
     private let stations = RadioStation.all
-    @StateObject private var player = RadioPlayer(stations: RadioStation.all)
+    @StateObject private var advertising: AdvertisingManager
+    @StateObject private var player: RadioPlayer
     @StateObject private var favorites = FavoritesStore()
     @AppStorage("appLanguageV3") private var appLanguage = ""
     @AppStorage("pauseOnAudioDisconnect") private var pauseOnAudioDisconnect = true
     @AppStorage("appearanceMode") private var appearanceMode = "System"
     @State private var selectedTab: Tab = .home
     @State private var showNowPlaying = false
+
+    init() {
+        let advertising = AdvertisingManager()
+        _advertising = StateObject(wrappedValue: advertising)
+        _player = StateObject(wrappedValue: RadioPlayer(stations: RadioStation.all, advertising: advertising))
+    }
 
     var body: some View {
         ZStack {
@@ -52,6 +59,10 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
+                if !advertising.isPremium {
+                    AdMobBanner(adUnitID: AdMobBanner.defaultAdUnitID)
+                        .frame(width: 320, height: 50)
+                }
                 MiniPlayer(player: player, favorites: favorites) {
                     showNowPlaying = true
                 }
@@ -59,6 +70,13 @@ struct ContentView: View {
                 BottomBar(selectedTab: $selectedTab)
             }
             .padding(.top, 8)
+        }
+        .overlay(alignment: .center) {
+            if advertising.isPlayingAudioAdvertisement {
+                AudioAdvertisementNotice(seconds: advertising.countdown)
+                    .padding(20)
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingScreen(stations: stations, player: player, favorites: favorites)
