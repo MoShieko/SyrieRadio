@@ -4,6 +4,8 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
+/// Immutable metadata used by the station browser and AVPlayer.
+/// Equality intentionally follows the stable station identifier rather than UI metadata.
 struct RadioStation: Identifiable, Equatable {
     let id: String
     let name: String
@@ -22,6 +24,8 @@ struct RadioStation: Identifiable, Equatable {
 }
 
 extension RadioStation {
+    /// Curated station catalog. Keeping it in one place makes search, favorites,
+    /// recent playback, and next/previous navigation use identical data.
     static let governorates = [
         "Damascus", "Rif Dimashq", "Aleppo", "Homs", "Hama", "Latakia", "Tartus",
         "Idlib", "Daraa", "As-Suwayda", "Quneitra", "Deir ez-Zor", "Raqqa", "Al-Hasakah"
@@ -39,6 +43,8 @@ extension RadioStation {
     ]
 }
 
+/// Owns the live AVPlayer lifecycle and exposes a small state machine to SwiftUI.
+/// A station is reported as live only after AVPlayer confirms active playback.
 @MainActor
 final class RadioPlayer: ObservableObject {
     enum PlaybackState: Equatable {
@@ -101,6 +107,8 @@ final class RadioPlayer: ObservableObject {
     func togglePlayback() { isPlaybackActive ? pause() : play() }
 
     func select(_ station: RadioStation, autoplay: Bool = true) {
+        // Selecting the current station resumes it; selecting another station
+        // disposes all observers before a new stream is created.
         let changed = selectedStation.id != station.id
         selectedStation = station
 
@@ -128,6 +136,8 @@ final class RadioPlayer: ObservableObject {
     }
 
     private func playWithAdvertisementIfNeeded(_ station: RadioStation) {
+        // AdvertisingManager resolves Premium before deciding whether playback
+        // can start immediately or must wait for the optional audio ad.
         playbackState = .loading
         updateNowPlayingInfo(for: station, playbackRate: 0)
         advertising.startRadio { [weak self] in
@@ -233,6 +243,8 @@ final class RadioPlayer: ObservableObject {
     }
 
     private func observePlayback(player: AVPlayer, item: AVPlayerItem, station: RadioStation) {
+        // Every callback validates player and item identity. This prevents a late
+        // callback from an old station from changing the new station's UI state.
         timeControlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) {
             [weak self, weak player, weak item] _, _ in
             Task { @MainActor [weak self, weak player, weak item] in
@@ -307,6 +319,7 @@ final class RadioPlayer: ObservableObject {
     ) {
         switch status {
         case .playing:
+            // This is the only transition that may expose "Live now" in the UI.
             isUserPaused = false
             playbackState = .playing
             remember(station)
@@ -407,6 +420,8 @@ final class RadioPlayer: ObservableObject {
     }
 
     private func tearDownRadioPlayer() {
+        // KVO and NotificationCenter observers must be removed together with the
+        // player to avoid duplicate events after repeated station changes.
         timeControlObservation?.invalidate()
         timeControlObservation = nil
         itemStatusObservation?.invalidate()
@@ -422,6 +437,7 @@ final class RadioPlayer: ObservableObject {
     }
 }
 
+/// Persists only station identifiers so catalog metadata can evolve independently.
 @MainActor
 final class FavoritesStore: ObservableObject {
     @Published private(set) var ids: Set<String> {
@@ -438,6 +454,7 @@ final class FavoritesStore: ObservableObject {
     }
 }
 
+/// Semantic colors shared throughout the app, with native light/dark adaptation.
 enum AppPalette {
     static let background = adaptive(light: (0.973, 0.976, 1.0), dark: (0.027, 0.055, 0.094))
     static let primary = adaptive(light: (0.0, 0.094, 0.208), dark: (0.835, 0.890, 1.0))

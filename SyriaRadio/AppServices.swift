@@ -2,6 +2,8 @@ import Combine
 import Foundation
 import UIKit
 
+/// Canonical external destinations used by Settings and the legal sheets.
+/// Keeping them centralized prevents the in-app and README links from drifting.
 enum AppLinks {
     static let privacyPolicy = URL(
         string: "https://github.com/MoShieko/SyrieRadio/blob/main/PRIVACY_POLICY.md"
@@ -17,6 +19,9 @@ enum AppLinks {
     static let supportEmail = "mohammed.shekho.2022@gmail.com"
 }
 
+/// Opens the permanent App Store review page from an explicit user action.
+/// A configured numeric App Store ID is preferred; bundle lookup supports the
+/// transition from development to the first published version.
 @MainActor
 final class AppStoreReviewManager: ObservableObject {
     @Published private(set) var isOpening = false
@@ -27,6 +32,7 @@ final class AppStoreReviewManager: ObservableObject {
         let results: [App]
     }
 
+    /// Resolves the review URL and reports actionable errors back to Settings.
     func openReviewPage() async {
         guard !isOpening else { return }
         isOpening = true
@@ -52,11 +58,15 @@ final class AppStoreReviewManager: ObservableObject {
     }
 
     private func resolveReviewURL() async throws -> URL {
+        // AppStoreAppID avoids a network lookup once App Store Connect has
+        // assigned the final identifier.
         if let configuredID = configuredAppStoreID,
            let url = reviewURL(appID: configuredID) {
             return url
         }
 
+        // Before AppStoreAppID is configured, Apple's lookup endpoint can resolve
+        // a published app from its bundle identifier and storefront country.
         guard let bundleID = Bundle.main.bundleIdentifier else {
             throw ReviewError.appNotPublished
         }
@@ -119,6 +129,8 @@ struct LegalSection: Identifiable {
     let body: String
 }
 
+/// Source of truth for the short legal copy shown inside the app. The public
+/// Markdown policies remain available through AppLinks for App Store metadata.
 enum LegalDocument: Equatable {
     case privacy
     case terms

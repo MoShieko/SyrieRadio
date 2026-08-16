@@ -8,6 +8,9 @@ import UIKit
 import GoogleMobileAds
 #endif
 
+/// Coordinates StoreKit entitlements and both advertising formats.
+/// Ads remain hidden until entitlement resolution finishes, preventing verified
+/// Premium users from seeing an ad briefly during startup.
 @MainActor
 final class AdvertisingManager: NSObject, ObservableObject {
     enum StoreOperation {
@@ -47,6 +50,8 @@ final class AdvertisingManager: NSObject, ObservableObject {
             ?? Self.fallbackPremiumProductID
         super.init()
 
+        // Resolve ownership before product metadata. Ownership controls ads;
+        // product metadata supplies the localized name, description, and price.
         entitlementTask = Task { [weak self] in
             await self?.refreshPremiumEntitlement()
             await self?.loadPremiumProduct()
@@ -73,6 +78,8 @@ final class AdvertisingManager: NSObject, ObservableObject {
         isLoadingProduct || isPurchasing || isRestoring
     }
 
+    /// Loads App Store metadata without inventing a fallback price. The UI uses
+    /// Product.displayPrice only after StoreKit supplies a localized value.
     func loadPremiumProduct() async {
         guard !isLoadingProduct else { return }
         isLoadingProduct = true
@@ -93,6 +100,8 @@ final class AdvertisingManager: NSObject, ObservableObject {
         }
     }
 
+    /// Completes only verified StoreKit 2 transactions and then rechecks the
+    /// current entitlement before exposing Premium features.
     func purchasePremium() async {
         guard !isPurchasing else { return }
         guard let product = premiumProduct else {
@@ -135,6 +144,7 @@ final class AdvertisingManager: NSObject, ObservableObject {
         }
     }
 
+    /// Reconciles purchases with the App Store and verifies that Premium is active.
     func restorePurchases() async {
         guard !isRestoring else { return }
         isRestoring = true
@@ -169,6 +179,8 @@ final class AdvertisingManager: NSObject, ObservableObject {
         storeErrorMessage = nil
     }
 
+    /// Starts radio immediately for Premium users, or after the locally bundled
+    /// audio advertisement when the cooldown allows one.
     func startRadio(afterAdvertisement completion: @escaping () -> Void) {
         if !isEntitlementResolved {
             radioStartCompletion = completion
@@ -227,6 +239,7 @@ final class AdvertisingManager: NSObject, ObservableObject {
     }
 
     private func refreshPremiumEntitlement() async {
+        // Unverified, revoked, upgraded, or expired transactions never unlock Premium.
         var entitled = false
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,
@@ -344,6 +357,7 @@ struct AudioAdvertisementNotice: View {
 }
 
 enum AdConfiguration {
+    /// Google's documented test unit prevents accidental production traffic in DEBUG.
     static let googleDebugBannerUnitID = "ca-app-pub-3940256099942544/2435281174"
 
     static var bannerUnitID: String? {

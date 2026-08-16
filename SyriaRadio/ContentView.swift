@@ -3,6 +3,8 @@ import Combine
 import SwiftUI
 import UIKit
 
+/// Root coordinator for navigation, shared playback state, audio-session events,
+/// and the persistent mini-player/ad area.
 struct ContentView: View {
     enum Tab: String, CaseIterable {
         case home = "Home"
@@ -31,6 +33,8 @@ struct ContentView: View {
     @State private var showNowPlaying = false
 
     init() {
+        // RadioPlayer and the views must share this exact manager so a verified
+        // Premium entitlement affects both playback ads and banner visibility.
         let advertising = AdvertisingManager()
         _advertising = StateObject(wrappedValue: advertising)
         _player = StateObject(wrappedValue: RadioPlayer(stations: RadioStation.all, advertising: advertising))
@@ -133,6 +137,7 @@ struct ContentView: View {
     }
 
     private func chooseInitialLanguageIfNeeded() {
+        // Preserve an explicit choice; otherwise mirror the first supported iOS language.
         guard appLanguage.isEmpty else { return }
         switch systemLanguageIdentifier {
         case "nl": appLanguage = "Nederlands"
@@ -149,6 +154,7 @@ struct ContentView: View {
     }
 
     private func configureAudioSession() {
+        // The playback category allows live radio to continue with the screen locked.
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -158,6 +164,8 @@ struct ContentView: View {
     }
 
     private func handleAudioRouteChange(_ notification: Notification) {
+        // Prevent audio from unexpectedly moving to the phone speaker when a car
+        // or Bluetooth output disconnects.
         guard pauseOnAudioDisconnect,
               player.isPlaybackActive,
               let reasonNumber = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber,
@@ -174,6 +182,8 @@ struct ContentView: View {
     }
 }
 
+/// App-wide tab bar. Layout direction stays fixed so the tab order remains
+/// predictable while labels still use the selected app language.
 private struct BottomBar: View {
     @Binding var selectedTab: ContentView.Tab
 

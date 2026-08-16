@@ -4,6 +4,8 @@ import MediaPlayer
 import StoreKit
 import SwiftUI
 
+// MARK: - Shared interface components
+
 struct AppHeader: View {
     let title: LocalizedStringKey
     var centered = false
@@ -100,6 +102,8 @@ private struct EmptyStateCard: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+// MARK: - Home
 
 struct HomeScreen: View {
     let stations: [RadioStation]
@@ -288,6 +292,8 @@ struct CategoryCard: View {
     }
 }
 
+// MARK: - Station directory
+
 struct StationsScreen: View {
     let stations: [RadioStation]
     @ObservedObject var player: RadioPlayer
@@ -444,6 +450,8 @@ struct StationRow: View {
     }
 }
 
+// MARK: - Favorites
+
 struct FavoritesScreen: View {
     let stations: [RadioStation]
     @ObservedObject var player: RadioPlayer
@@ -521,6 +529,8 @@ struct FavoriteCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 22))
     }
 }
+
+// MARK: - Playback controls
 
 struct MiniPlayer: View {
     @ObservedObject var player: RadioPlayer
@@ -823,6 +833,8 @@ struct SmallControl: View {
     }
 }
 
+// MARK: - Settings
+
 struct SettingsScreen: View {
     private enum PickerKind {
         case language
@@ -1001,6 +1013,8 @@ struct SettingsScreen: View {
     }
 
     private var premiumDetail: (text: String, localizes: Bool) {
+        // StoreKit owns the final price and currency formatting. Never display
+        // the local test value as if it were a production price.
         if advertising.isPremium { return ("Active", true) }
         if let price = advertising.premiumProduct?.displayPrice { return (price, false) }
         if advertising.isLoadingProduct { return ("Loading price…", true) }
@@ -1008,6 +1022,8 @@ struct SettingsScreen: View {
         return ("View options", true)
     }
 }
+
+// MARK: - Premium
 
 private struct PremiumScreen: View {
     @ObservedObject var advertising: AdvertisingManager
@@ -1156,6 +1172,8 @@ private struct PremiumScreen: View {
                 }
             }
             .task {
+                // Retry when the sheet opens so a temporary connection failure
+                // does not leave stale product metadata on screen.
                 if advertising.premiumProduct == nil, !advertising.isLoadingProduct {
                     await advertising.loadPremiumProduct()
                 }
@@ -1180,6 +1198,8 @@ private struct PremiumFeatureRow: View {
         }
     }
 }
+
+// MARK: - Legal documents
 
 private struct LegalDocumentView: View {
     let document: LegalDocument
@@ -1274,6 +1294,8 @@ private struct LegalLink: View {
         }
     }
 }
+
+// MARK: - Settings components
 
 private struct SettingsPickerCard: View {
     let title: String
