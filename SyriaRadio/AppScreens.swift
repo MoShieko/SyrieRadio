@@ -71,6 +71,36 @@ struct SearchField: View {
     }
 }
 
+private struct EmptyStateCard: View {
+    let icon: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(AppPalette.gold)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(AppPalette.primary)
+            Text(message)
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(AppPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+        .padding(.horizontal, 20)
+        .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(AppPalette.primary.opacity(0.06), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct HomeScreen: View {
     let stations: [RadioStation]
     @ObservedObject var player: RadioPlayer
@@ -84,15 +114,23 @@ struct HomeScreen: View {
     }
 
     var body: some View {
-        GlassHeaderLayout(title: "SyrieRadio") {
+        GlassHeaderLayout(title: "SyriaRadio") {
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 28) {
                 SearchField(text: $searchText, placeholder: "Search stations…")
 
                 if !searchText.isEmpty {
                     sectionTitle("Search Results")
-                    ForEach(results) { station in
-                        StationRow(station: station, player: player, favorites: favorites)
+                    if results.isEmpty {
+                        EmptyStateCard(
+                            icon: "magnifyingglass",
+                            title: "No stations found",
+                            message: "Try another station name or city."
+                        )
+                    } else {
+                        ForEach(results) { station in
+                            StationRow(station: station, player: player, favorites: favorites)
+                        }
                     }
                 } else {
                     featured
@@ -103,6 +141,8 @@ struct HomeScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 82)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -122,7 +162,8 @@ struct HomeScreen: View {
                         FeaturedCard(
                             station: station,
                             isLive: player.isPlaying && player.selectedStation == station,
-                            isActive: player.isPlaybackActive && player.selectedStation == station
+                            isActive: player.isPlaybackActive && player.selectedStation == station,
+                            isLoading: player.isLoading && player.selectedStation == station
                         ) {
                             if player.selectedStation == station, player.isPlaybackActive {
                                 player.pause()
@@ -174,6 +215,7 @@ struct FeaturedCard: View {
     let station: RadioStation
     let isLive: Bool
     let isActive: Bool
+    let isLoading: Bool
     let action: () -> Void
 
     var body: some View {
@@ -198,11 +240,18 @@ struct FeaturedCard: View {
                 .padding(16)
                 HStack {
                     Spacer()
-                    Image(systemName: isActive ? "pause.fill" : "play.fill")
-                        .foregroundStyle(AppPalette.primary)
-                        .frame(width: 42, height: 42)
-                        .background(AppPalette.goldLight, in: Circle())
-                        .padding(14)
+                    Group {
+                        if isLoading {
+                            ProgressView()
+                                .tint(AppPalette.primary)
+                        } else {
+                            Image(systemName: isActive ? "pause.fill" : "play.fill")
+                                .foregroundStyle(AppPalette.primary)
+                        }
+                    }
+                    .frame(width: 42, height: 42)
+                    .background(AppPalette.goldLight, in: Circle())
+                    .padding(14)
                 }
             }
             .frame(width: 286, height: 176)
@@ -210,6 +259,9 @@ struct FeaturedCard: View {
             .shadow(color: AppPalette.primary.opacity(0.12), radius: 12, y: 6)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: station.name))
+        .accessibilityValue(Text(LocalizedStringKey(isLive ? "Live now" : station.genre)))
+        .accessibilityHint(Text(isActive ? "Pause radio" : "Play station"))
     }
 }
 
@@ -287,10 +339,19 @@ struct StationsScreen: View {
                 ForEach(filtered) { station in
                     StationRow(station: station, player: player, favorites: favorites)
                 }
+                if filtered.isEmpty {
+                    EmptyStateCard(
+                        icon: "line.3.horizontal.decrease.circle",
+                        title: "No stations found",
+                        message: "Change the search or governorate filter."
+                    )
+                }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 82)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -305,6 +366,15 @@ struct StationRow: View {
     private var isSelected: Bool { player.selectedStation == station }
     private var active: Bool { isSelected && player.isPlaybackActive }
     private var hasPlaybackStatus: Bool { isSelected && player.playbackState != .idle }
+    private var statusColor: Color {
+        guard isSelected else { return AppPalette.textSecondary.opacity(0.42) }
+        switch player.playbackState {
+        case .playing: return AppPalette.gold
+        case .loading: return .blue
+        case .failed: return .red
+        case .paused, .idle: return AppPalette.textSecondary.opacity(0.55)
+        }
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -326,7 +396,7 @@ struct StationRow: View {
                         if !compact { Text(LocalizedStringKey(station.frequency)).font(.caption.weight(.bold)).foregroundStyle(AppPalette.gold) }
                     }
                     HStack(spacing: 5) {
-                        Circle().fill(active ? AppPalette.gold : Color.green).frame(width: 6, height: 6)
+                        Circle().fill(statusColor).frame(width: 7, height: 7)
                         Text(LocalizedStringKey(hasPlaybackStatus ? player.statusText : station.tagline))
                             .font(.caption)
                             .foregroundStyle(AppPalette.textSecondary)
@@ -336,20 +406,31 @@ struct StationRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: station.name))
+            .accessibilityValue(Text(LocalizedStringKey(hasPlaybackStatus ? player.statusText : station.tagline)))
+            .accessibilityHint(Text(active ? "Pause radio" : "Play station"))
             Button { favorites.toggle(station) } label: {
                 Image(systemName: favorites.contains(station) ? "heart.fill" : "heart")
                     .foregroundStyle(favorites.contains(station) ? AppPalette.gold : AppPalette.textSecondary.opacity(0.45))
                     .frame(width: 30, height: 44)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(favorites.contains(station) ? "Remove from favorites" : "Add to favorites"))
             Button { toggleStation() } label: {
-                Image(systemName: active ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .bold))
+                Group {
+                    if isSelected && player.isLoading {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: active ? "pause.fill" : "play.fill")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                }
                     .foregroundStyle(active ? .white : AppPalette.primary)
                     .frame(width: 42, height: 42)
                     .background(active ? AppPalette.control : AppPalette.goldLight, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(active ? "Pause radio" : "Play station"))
         }
         .padding(compact ? 0 : 12)
         .background(compact ? Color.clear : AppPalette.card.opacity(0.90), in: RoundedRectangle(cornerRadius: 16))
@@ -373,7 +454,7 @@ struct FavoritesScreen: View {
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
     var body: some View {
-        GlassHeaderLayout(title: "SyrieRadio") {
+        GlassHeaderLayout(title: "SyriaRadio") {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                 sectionTitle("Favorites")
@@ -401,6 +482,8 @@ struct FavoritesScreen: View {
                 }
                 }
                 .padding(.horizontal, 20).padding(.top, 82).padding(.bottom, 24)
+                .frame(maxWidth: 900)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -426,10 +509,13 @@ struct FavoriteCard: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: station.name))
+            .accessibilityHint("Play station")
             Button { favorites.toggle(station) } label: {
                 Image(systemName: "heart.fill").foregroundStyle(AppPalette.goldLight).padding(12)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove from favorites")
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
@@ -484,13 +570,20 @@ struct MiniPlayer: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
-            if player.isLoading { ProgressView().tint(AppPalette.primary).frame(width: 42, height: 42) }
-            else {
-                Button(action: player.togglePlayback) {
+            Button(action: player.togglePlayback) {
+                Group {
+                    if player.isLoading {
+                        ProgressView().tint(.white)
+                    } else {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .foregroundStyle(.white).frame(width: 42, height: 42).background(AppPalette.control, in: Circle())
-                }.buttonStyle(.plain)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(AppPalette.control, in: Circle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(player.isLoading ? "Cancel connection" : (player.isPlaying ? "Pause radio" : "Play station")))
         }
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -592,6 +685,7 @@ struct NowPlayingScreen: View {
                                 .font(.system(size: compact ? 23 : 27))
                                 .frame(width: 48, height: 48)
                         }
+                        .accessibilityLabel("Previous station")
                         Button(action: player.togglePlayback) {
                             Group {
                                 if player.isLoading {
@@ -606,11 +700,13 @@ struct NowPlayingScreen: View {
                             .background(AppPalette.gold, in: Circle())
                             .shadow(color: AppPalette.gold.opacity(0.28), radius: 14, y: 7)
                         }
+                        .accessibilityLabel(Text(player.isLoading ? "Cancel connection" : (player.isPlaying ? "Pause radio" : "Play station")))
                         Button { player.next(in: stations) } label: {
                             Image(systemName: "forward.end.fill")
                                 .font(.system(size: compact ? 23 : 27))
                                 .frame(width: 48, height: 48)
                         }
+                        .accessibilityLabel("Next station")
                     }
                     .foregroundStyle(AppPalette.primary)
 
@@ -667,9 +763,9 @@ private struct AirPlayRoutePicker: UIViewRepresentable {
 private struct SystemVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let volumeView = MPVolumeView(frame: .zero)
-        volumeView.showsRouteButton = false
         volumeView.showsVolumeSlider = true
         volumeView.tintColor = UIColor(AppPalette.gold)
+        hideEmbeddedRouteButton(in: volumeView)
 
         if let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first {
             slider.minimumTrackTintColor = UIColor(AppPalette.gold)
@@ -679,7 +775,16 @@ private struct SystemVolumeSlider: UIViewRepresentable {
         return volumeView
     }
 
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        hideEmbeddedRouteButton(in: uiView)
+    }
+
+    private func hideEmbeddedRouteButton(in volumeView: MPVolumeView) {
+        // AirPlay has its own AVRoutePickerView above, so keep this control slider-only.
+        volumeView.subviews
+            .filter { $0 is UIButton }
+            .forEach { $0.isHidden = true }
+    }
 }
 
 struct Waveform: View {
@@ -731,55 +836,84 @@ struct SettingsScreen: View {
     @AppStorage("streamingQuality") private var streamingQuality = "Automatic"
     @AppStorage("pauseOnAudioDisconnect") private var pauseOnAudioDisconnect = true
     @AppStorage("appearanceMode") private var appearanceMode = "System"
+    @StateObject private var reviewManager = AppStoreReviewManager()
     @State private var activePicker: PickerKind?
     @State private var showAbout = false
     @State private var showPremium = false
+    @State private var showPrivacyPolicy = false
+    @State private var showTermsOfUse = false
 
     var body: some View {
         ZStack {
             GlassHeaderLayout(title: "Settings") {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        SettingsRow(
-                            icon: "globe",
-                            title: "Language",
-                            detail: language.isEmpty ? "English" : language,
-                            localizesDetail: false
-                        ) {
-                            activePicker = .language
+                        SettingsSection(title: "Experience") {
+                            SettingsRow(
+                                icon: "globe",
+                                title: "Language",
+                                detail: language.isEmpty ? "English" : language,
+                                localizesDetail: false
+                            ) {
+                                activePicker = .language
+                            }
+                            SettingsRow(icon: "circle.lefthalf.filled", title: "Appearance", detail: appearanceMode) {
+                                activePicker = .appearance
+                            }
                         }
-                        SettingsRow(icon: "waveform", title: "Streaming quality", detail: streamingQuality) {
-                            activePicker = .quality
+
+                        SettingsSection(title: "Playback") {
+                            SettingsRow(icon: "waveform", title: "Streaming quality", detail: streamingQuality) {
+                                activePicker = .quality
+                            }
+                            SettingsToggleRow(
+                                icon: "car.side",
+                                title: "Pause on disconnect",
+                                detail: "Car & Bluetooth",
+                                isOn: $pauseOnAudioDisconnect
+                            )
                         }
-                        SettingsRow(icon: "circle.lefthalf.filled", title: "Appearance", detail: appearanceMode) {
-                            activePicker = .appearance
+
+                        SettingsSection(title: "Membership") {
+                            SettingsRow(
+                                icon: advertising.isPremium ? "checkmark.seal.fill" : "crown.fill",
+                                title: "Premium",
+                                detail: premiumDetail.text,
+                                localizesDetail: premiumDetail.localizes
+                            ) {
+                                showPremium = true
+                            }
                         }
-                        SettingsToggleRow(
-                            icon: "car.side",
-                            title: "Pause on disconnect",
-                            detail: "Car & Bluetooth",
-                            isOn: $pauseOnAudioDisconnect
-                        )
-                        SettingsRow(
-                            icon: advertising.isPremium ? "checkmark.seal.fill" : "crown.fill",
-                            title: "Premium",
-                            detail: advertising.isPremium
-                                ? "Active"
-                                : (advertising.premiumProduct?.displayPrice ?? "View options"),
-                            localizesDetail: advertising.isPremium || advertising.premiumProduct == nil
-                        ) {
-                            showPremium = true
+
+                        SettingsSection(title: "Legal") {
+                            SettingsRow(icon: "hand.raised", title: "Privacy Policy", detail: "Read", localizesDetail: true) {
+                                showPrivacyPolicy = true
+                            }
+                            SettingsRow(icon: "doc.text", title: "Terms of Use", detail: "Read", localizesDetail: true) {
+                                showTermsOfUse = true
+                            }
                         }
-                        SettingsRow(icon: "star", title: "Leave a review", detail: "App Store") {
-                            requestAppReview()
+
+                        SettingsSection(title: "Support") {
+                            SettingsRow(
+                                icon: "star",
+                                title: "Leave a review",
+                                detail: reviewManager.isOpening ? "Opening…" : "App Store"
+                            ) {
+                                Task { await reviewManager.openReviewPage() }
+                            }
+                            SettingsRow(icon: "info.circle", title: "About SyriaRadio", detail: appVersion, localizesDetail: false) {
+                                showAbout = true
+                            }
                         }
-                        SettingsRow(icon: "info.circle", title: "About SyrieRadio", detail: appVersion, localizesDetail: false) {
-                            showAbout = true
-                        }
-                        Text("SyrieRadio brings Syrian stations together in one simple, independent player.")
+
+                        Text("SyriaRadio brings Syrian stations together in one simple, independent player.")
                             .font(.footnote).foregroundStyle(AppPalette.textSecondary).padding(.top, 12)
                     }
                     .padding(.horizontal, 20).padding(.top, 82)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
                 }
             }
 
@@ -792,7 +926,7 @@ struct SettingsScreen: View {
                 case .language:
                     SettingsPickerCard(
                         title: "Choose language",
-                        message: "Select the language you prefer for SyrieRadio.",
+                        message: "Select the language you prefer for SyriaRadio.",
                         options: [
                             "العربية", "English", "Nederlands", "Deutsch", "Français",
                             "Türkçe", "Kurdî", "Svenska", "Español", "Italiano"
@@ -822,7 +956,7 @@ struct SettingsScreen: View {
                 case .appearance:
                     SettingsPickerCard(
                         title: "Appearance",
-                        message: "Choose how SyrieRadio looks.",
+                        message: "Choose how SyriaRadio looks.",
                         options: ["System", "Light", "Dark"],
                         selected: appearanceMode,
                         localizesOptions: true,
@@ -837,10 +971,27 @@ struct SettingsScreen: View {
         }
         .animation(.easeInOut(duration: 0.18), value: activePicker != nil)
         .sheet(isPresented: $showAbout) {
-            AboutSyrieRadioView(version: appVersion)
+            AboutSyriaRadioView(version: appVersion)
         }
         .sheet(isPresented: $showPremium) {
             PremiumScreen(advertising: advertising)
+        }
+        .sheet(isPresented: $showPrivacyPolicy) {
+            LegalDocumentView(document: .privacy)
+        }
+        .sheet(isPresented: $showTermsOfUse) {
+            LegalDocumentView(document: .terms)
+        }
+        .alert(
+            "Review unavailable",
+            isPresented: Binding(
+                get: { reviewManager.errorMessage != nil },
+                set: { if !$0 { reviewManager.errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { reviewManager.errorMessage = nil }
+        } message: {
+            Text(reviewManager.errorMessage ?? "")
         }
     }
 
@@ -849,12 +1000,12 @@ struct SettingsScreen: View {
         return "Version \(shortVersion ?? "1.0")"
     }
 
-    private func requestAppReview() {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive })
-        else { return }
-        SKStoreReviewController.requestReview(in: scene)
+    private var premiumDetail: (text: String, localizes: Bool) {
+        if advertising.isPremium { return ("Active", true) }
+        if let price = advertising.premiumProduct?.displayPrice { return (price, false) }
+        if advertising.isLoadingProduct { return ("Loading price…", true) }
+        if advertising.storeErrorMessage != nil { return ("Price unavailable", true) }
+        return ("View options", true)
     }
 }
 
@@ -871,13 +1022,13 @@ private struct PremiumScreen: View {
                         .foregroundStyle(AppPalette.gold)
                         .padding(.top, 18)
 
-                    Text(advertising.isPremium ? "Premium is active" : "SyrieRadio Premium")
+                    Text(advertising.isPremium ? "Premium is active" : "SyriaRadio Premium")
                         .font(.system(size: 25, weight: .bold, design: .rounded))
                         .foregroundStyle(AppPalette.primary)
                         .multilineTextAlignment(.center)
 
                     if advertising.isPremium {
-                        Text("Enjoy SyrieRadio without advertisements.")
+                        Text("Enjoy SyriaRadio without advertisements.")
                             .font(.subheadline)
                             .foregroundStyle(AppPalette.textSecondary)
                             .multilineTextAlignment(.center)
@@ -897,9 +1048,34 @@ private struct PremiumScreen: View {
                     } else if advertising.isLoadingProduct {
                         VStack(spacing: 10) {
                             ProgressView()
-                            Text("Loading Premium…")
+                            Text("Loading price…")
                                 .font(.subheadline)
                                 .foregroundStyle(AppPalette.textSecondary)
+                        }
+                    } else {
+                        VStack(spacing: 8) {
+                            Label("Price unavailable", systemImage: "eurosign.circle")
+                                .font(.headline)
+                                .foregroundStyle(AppPalette.primary)
+                            Text("The final price is always loaded securely from the App Store.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppPalette.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+
+                    if !advertising.isPremium {
+                        VStack(alignment: .leading, spacing: 14) {
+                            PremiumFeatureRow(icon: "rectangle.slash", title: "No banner advertisements")
+                            PremiumFeatureRow(icon: "speaker.slash.fill", title: "No audio advertisements")
+                            PremiumFeatureRow(icon: "checkmark.shield.fill", title: "Verified by the App Store")
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 18))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(AppPalette.primary.opacity(0.06), lineWidth: 1)
                         }
                     }
 
@@ -962,6 +1138,11 @@ private struct PremiumScreen: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppPalette.gold)
                         .disabled(advertising.isStoreBusy)
+
+                        Text("One-time purchase linked to your Apple ID.")
+                            .font(.caption)
+                            .foregroundStyle(AppPalette.textSecondary)
+                            .multilineTextAlignment(.center)
                     }
                 }
                 .padding(28)
@@ -974,6 +1155,122 @@ private struct PremiumScreen: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .task {
+                if advertising.premiumProduct == nil, !advertising.isLoadingProduct {
+                    await advertising.loadPremiumProduct()
+                }
+            }
+        }
+    }
+}
+
+private struct PremiumFeatureRow: View {
+    let icon: String
+    let title: LocalizedStringKey
+
+    var body: some View {
+        Label {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppPalette.primary)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(AppPalette.gold)
+                .frame(width: 24)
+        }
+    }
+}
+
+private struct LegalDocumentView: View {
+    let document: LegalDocument
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(spacing: 10) {
+                        Image(systemName: document.icon)
+                            .font(.system(size: 42, weight: .semibold))
+                            .foregroundStyle(AppPalette.gold)
+                        Text(LocalizedStringKey(document.title))
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundStyle(AppPalette.primary)
+                        Text("Effective date: 16 August 2026")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppPalette.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    ForEach(document.sections) { section in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(LocalizedStringKey(section.title))
+                                .font(.headline)
+                                .foregroundStyle(AppPalette.primary)
+                            Text(LocalizedStringKey(section.body))
+                                .font(.body)
+                                .foregroundStyle(AppPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(AppPalette.primary.opacity(0.06), lineWidth: 1)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        if document == .privacy {
+                            LegalLink(title: "Online Privacy Policy", destination: AppLinks.privacyPolicy)
+                            LegalLink(title: "Google Privacy Policy", destination: AppLinks.googlePrivacy)
+                            LegalLink(title: "Apple Privacy Policy", destination: AppLinks.applePrivacy)
+                        } else {
+                            LegalLink(title: "Online Terms of Use", destination: AppLinks.termsOfUse)
+                            LegalLink(title: "Apple Standard EULA", destination: AppLinks.appleStandardEULA)
+                        }
+
+                        if let emailURL = URL(string: "mailto:\(AppLinks.supportEmail)") {
+                            LegalLink(title: "Contact the developer", destination: emailURL)
+                        }
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+            }
+            .background(AppPalette.background.ignoresSafeArea())
+            .navigationTitle(LocalizedStringKey(document.title))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct LegalLink: View {
+    let title: LocalizedStringKey
+    let destination: URL
+
+    var body: some View {
+        Link(destination: destination) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.up.right.square")
+                    .foregroundStyle(AppPalette.gold)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppPalette.textSecondary.opacity(0.55))
+            }
+            .foregroundStyle(AppPalette.primary)
+            .padding(16)
+            .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 }
@@ -1086,6 +1383,23 @@ struct SettingsRow: View {
     }
 }
 
+private struct SettingsSection<Content: View>: View {
+    let title: LocalizedStringKey
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(AppPalette.textSecondary)
+                .padding(.horizontal, 4)
+            VStack(spacing: 10, content: content)
+        }
+    }
+}
+
 private struct SettingsToggleRow: View {
     let icon: String
     let title: LocalizedStringKey
@@ -1118,7 +1432,7 @@ private struct SettingsToggleRow: View {
     }
 }
 
-private struct AboutSyrieRadioView: View {
+private struct AboutSyriaRadioView: View {
     let version: String
     @Environment(\.dismiss) private var dismiss
 
@@ -1150,7 +1464,7 @@ private struct AboutSyrieRadioView: View {
                     .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 28))
                     .shadow(color: AppPalette.primary.opacity(0.12), radius: 18, y: 8)
 
-                Text("SyrieRadio")
+                Text("SyriaRadio")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(AppPalette.primary)
                 Text(version)

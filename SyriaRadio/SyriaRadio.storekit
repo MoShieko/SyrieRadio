@@ -20,18 +20,18 @@
       "internalID" : "5052454D",
       "localizations" : [
         {
-          "description" : "Een eenmalige aankoop om zonder advertenties naar SyrieRadio te luisteren.",
-          "displayName" : "SyrieRadio Premium",
+          "description" : "Een eenmalige aankoop om zonder advertenties naar SyriaRadio te luisteren.",
+          "displayName" : "SyriaRadio Premium",
           "locale" : "nl_NL"
         },
         {
-          "description" : "A one-time purchase to listen to SyrieRadio without advertisements.",
-          "displayName" : "SyrieRadio Premium",
+          "description" : "A one-time purchase to listen to SyriaRadio without advertisements.",
+          "displayName" : "SyriaRadio Premium",
           "locale" : "en_US"
         }
       ],
       "productID" : "Mohammed.Shieko.SyriaRadio.premium",
-      "referenceName" : "SyrieRadio Premium",
+      "referenceName" : "SyriaRadio Premium",
       "type" : "NonConsumable"
     }
   ],

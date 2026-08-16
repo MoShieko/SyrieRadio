@@ -64,10 +64,13 @@ struct ContentView: View {
                     AdMobBanner(adUnitID: adUnitID)
                         .frame(width: 320, height: 50)
                 }
-                MiniPlayer(player: player, favorites: favorites) {
-                    showNowPlaying = true
+                if player.hasPlaybackSession {
+                    MiniPlayer(player: player, favorites: favorites) {
+                        showNowPlaying = true
+                    }
+                    .padding(.horizontal, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .padding(.horizontal, 16)
                 BottomBar(selectedTab: $selectedTab)
             }
             .padding(.top, 8)
@@ -82,6 +85,7 @@ struct ContentView: View {
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingScreen(stations: stations, player: player, favorites: favorites)
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.84), value: player.hasPlaybackSession)
         .onAppear {
             chooseInitialLanguageIfNeeded()
             configureAudioSession()
@@ -172,9 +176,6 @@ struct ContentView: View {
 
 private struct BottomBar: View {
     @Binding var selectedTab: ContentView.Tab
-    @State private var dragLocation: CGFloat?
-    @State private var previewTab: ContentView.Tab?
-    @State private var isScrubbing = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -182,45 +183,42 @@ private struct BottomBar: View {
 
             ZStack(alignment: .leading) {
                 ActiveTabGlass()
-                    .frame(width: itemWidth, height: 52)
-                    .scaleEffect(
-                        x: isScrubbing ? 1.08 : 1,
-                        y: isScrubbing ? 1.08 : 1
-                    )
-                    .shadow(
-                        color: AppPalette.primary.opacity(isScrubbing ? 0.22 : 0),
-                        radius: isScrubbing ? 12 : 0,
-                        y: isScrubbing ? 6 : 0
-                    )
-                    .offset(x: indicatorOffset(width: geometry.size.width, itemWidth: itemWidth))
-                    .animation(
-                        dragLocation == nil ? .spring(response: 0.34, dampingFraction: 0.82) : nil,
-                        value: indicatorOffset(width: geometry.size.width, itemWidth: itemWidth)
-                    )
+                    .frame(width: itemWidth, height: 58)
+                    .offset(x: 6 + CGFloat(selectedIndex) * itemWidth)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.82), value: selectedTab)
 
                 HStack(spacing: 0) {
                     ForEach(ContentView.Tab.allCases, id: \.self) { tab in
-                        let active = displayedTab == tab
-                        Image(systemName: tab.icon + (active ? ".fill" : ""))
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(active ? AppPalette.gold : AppPalette.textSecondary.opacity(0.65))
-                            .scaleEffect(active && isScrubbing ? 1.22 : 1)
-                            .animation(.spring(response: 0.20, dampingFraction: 0.68), value: active)
-                            .animation(.spring(response: 0.24, dampingFraction: 0.72), value: isScrubbing)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                        let active = selectedTab == tab
+                        Button {
+                            guard selectedTab != tab else { return }
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                selectedTab = tab
+                            }
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: tab.icon + (active ? ".fill" : ""))
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .frame(height: 23)
+                                Text(LocalizedStringKey(tab.rawValue))
+                                    .font(.system(size: 10, weight: active ? .bold : .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                            }
+                            .foregroundStyle(active ? AppPalette.gold : AppPalette.textSecondary.opacity(0.72))
+                            .frame(maxWidth: .infinity, minHeight: 58)
                             .contentShape(Rectangle())
-                            .accessibilityHidden(true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(LocalizedStringKey(tab.rawValue)))
+                        .accessibilityAddTraits(active ? .isSelected : [])
                     }
                 }
                 .padding(6)
             }
-            .contentShape(Capsule())
-            .gesture(scrubGesture(width: geometry.size.width))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(LocalizedStringKey(selectedTab.rawValue)))
-            .accessibilityHint("Swipe left or right to change tab")
         }
-        .frame(height: 64)
+        .frame(height: 70)
         .modifier(DarkGlassBarStyle())
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
@@ -230,60 +228,6 @@ private struct BottomBar: View {
 
     private var selectedIndex: Int {
         ContentView.Tab.allCases.firstIndex(of: selectedTab) ?? 0
-    }
-
-    private var displayedTab: ContentView.Tab {
-        previewTab ?? selectedTab
-    }
-
-    private func indicatorOffset(width: CGFloat, itemWidth: CGFloat) -> CGFloat {
-        if let dragLocation {
-            return min(max(dragLocation - itemWidth / 2, 6), width - itemWidth - 6)
-        }
-        return 6 + CGFloat(selectedIndex) * itemWidth
-    }
-
-    private func tab(at location: CGFloat, width: CGFloat) -> ContentView.Tab {
-        let tabs = ContentView.Tab.allCases
-        guard !tabs.isEmpty, width > 12 else { return selectedTab }
-        let contentWidth = width - 12
-        let tabWidth = contentWidth / CGFloat(tabs.count)
-        let adjustedLocation = min(max(location - 6, 0), contentWidth - 0.001)
-        let index = min(Int(adjustedLocation / tabWidth), tabs.count - 1)
-        return tabs[index]
-    }
-
-    private func scrubGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .onChanged { drag in
-                if !isScrubbing {
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.65)
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) {
-                        isScrubbing = true
-                    }
-                }
-                updateScrub(at: drag.location.x, width: width)
-            }
-            .onEnded { drag in
-                updateScrub(at: drag.location.x, width: width)
-                let destination = previewTab ?? selectedTab
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                    selectedTab = destination
-                    dragLocation = nil
-                    previewTab = nil
-                    isScrubbing = false
-                }
-            }
-    }
-
-    private func updateScrub(at location: CGFloat, width: CGFloat) {
-        let clampedLocation = min(max(location, 6), width - 6)
-        let nextTab = tab(at: clampedLocation, width: width)
-        dragLocation = clampedLocation
-        if previewTab != nextTab {
-            previewTab = nextTab
-            UISelectionFeedbackGenerator().selectionChanged()
-        }
     }
 }
 

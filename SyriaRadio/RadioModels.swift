@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import MediaPlayer
 import SwiftUI
 import UIKit
 
@@ -59,11 +60,15 @@ final class RadioPlayer: ObservableObject {
     private var itemFailureObserver: NSObjectProtocol?
     private var itemStalledObserver: NSObjectProtocol?
     private var itemEndedObserver: NSObjectProtocol?
+    private var remoteCommandTargets: [(command: MPRemoteCommand, target: Any)] = []
+    private let stations: [RadioStation]
     private let advertising: AdvertisingManager
 
     init(stations: [RadioStation], advertising: AdvertisingManager) {
         selectedStation = stations[0]
+        self.stations = stations
         self.advertising = advertising
+        configureRemoteCommands()
     }
 
     deinit {
@@ -73,10 +78,15 @@ final class RadioPlayer: ObservableObject {
         if let itemFailureObserver { NotificationCenter.default.removeObserver(itemFailureObserver) }
         if let itemStalledObserver { NotificationCenter.default.removeObserver(itemStalledObserver) }
         if let itemEndedObserver { NotificationCenter.default.removeObserver(itemEndedObserver) }
+        for target in remoteCommandTargets {
+            target.command.removeTarget(target.target)
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     var isPlaying: Bool { playbackState == .playing }
     var isPlaybackActive: Bool { playbackState == .playing || playbackState == .loading }
+    var hasPlaybackSession: Bool { playbackState != .idle }
     var isLoading: Bool { playbackState == .loading }
     var statusText: String {
         switch playbackState {
@@ -119,6 +129,7 @@ final class RadioPlayer: ObservableObject {
 
     private func playWithAdvertisementIfNeeded(_ station: RadioStation) {
         playbackState = .loading
+        updateNowPlayingInfo(for: station, playbackRate: 0)
         advertising.startRadio { [weak self] in
             guard let self, self.selectedStation == station else { return }
             self.startStream(station)
@@ -145,6 +156,7 @@ final class RadioPlayer: ObservableObject {
         isUserPaused = true
         radioPlayer?.pause()
         playbackState = .paused
+        updateNowPlayingInfo(for: selectedStation, playbackRate: 0)
     }
 
     func previous(in stations: [RadioStation]) { move(by: -1, in: stations) }
@@ -298,6 +310,7 @@ final class RadioPlayer: ObservableObject {
             isUserPaused = false
             playbackState = .playing
             remember(station)
+            updateNowPlayingInfo(for: station, playbackRate: 1)
         case .waitingToPlayAtSpecifiedRate:
             guard !isUserPaused else { return }
             if case .failed = playbackState { return }
@@ -339,6 +352,58 @@ final class RadioPlayer: ObservableObject {
         isUserPaused = false
         playbackState = .failed("Stream unavailable")
         radioPlayer?.pause()
+        updateNowPlayingInfo(for: selectedStation, playbackRate: 0)
+    }
+
+    /// Makes the radio behave like a native audio app from the Lock Screen,
+    /// Control Center, Bluetooth controls, and CarPlay-compatible controls.
+    private func configureRemoteCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+
+        remoteCommandTargets = [
+            (commands.playCommand, commands.playCommand.addTarget { [weak self] _ in
+                Task { @MainActor [weak self] in self?.play() }
+                return .success
+            }),
+            (commands.pauseCommand, commands.pauseCommand.addTarget { [weak self] _ in
+                Task { @MainActor [weak self] in self?.pause() }
+                return .success
+            }),
+            (commands.togglePlayPauseCommand, commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+                Task { @MainActor [weak self] in self?.togglePlayback() }
+                return .success
+            }),
+            (commands.nextTrackCommand, commands.nextTrackCommand.addTarget { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.next(in: self.stations)
+                }
+                return .success
+            }),
+            (commands.previousTrackCommand, commands.previousTrackCommand.addTarget { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.previous(in: self.stations)
+                }
+                return .success
+            })
+        ]
+    }
+
+    private func updateNowPlayingInfo(for station: RadioStation, playbackRate: Float) {
+        var information: [String: Any] = [
+            MPMediaItemPropertyTitle: station.name,
+            MPMediaItemPropertyArtist: station.city,
+            MPMediaItemPropertyAlbumTitle: "SyriaRadio",
+            MPNowPlayingInfoPropertyIsLiveStream: true,
+            MPNowPlayingInfoPropertyPlaybackRate: playbackRate,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1
+        ]
+
+        if let image = UIImage(named: station.imageName) {
+            information[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = information
     }
 
     private func tearDownRadioPlayer() {

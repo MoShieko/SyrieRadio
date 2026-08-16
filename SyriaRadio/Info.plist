@@ -6,6 +6,8 @@
 	<string>$(ADMOB_APP_ID)</string>
 	<key>AdMobBannerUnitID</key>
 	<string>$(ADMOB_BANNER_UNIT_ID)</string>
+	<key>AppStoreAppID</key>
+	<string>$(APP_STORE_APP_ID)</string>
 	<!-- Must match the auto-renewable subscription or non-consumable in App Store Connect. -->
 	<key>PremiumProductIdentifier</key>
 	<string>Mohammed.Shieko.SyriaRadio.premium</string>
